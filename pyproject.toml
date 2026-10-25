@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cob"
+dynamic = ["version"]
+description = "CallOverBluetooth: take your phone calls on your PC over Bluetooth Hands-Free (HFP)"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.22",
+    "sounddevice>=0.4.6",
+    "dbus-fast>=2.0; sys_platform == 'linux'",
+    "bumble>=0.0.200; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+# The Bumble backend is always installed on Windows; on Linux it is optional.
+bumble = ["bumble>=0.0.200"]
+dev = ["pytest>=7", "bumble>=0.0.200"]
+
+[project.scripts]
+cob = "cob.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "cob.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["cob*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::FutureWarning:bumble.*"]
