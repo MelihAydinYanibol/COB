@@ -5,6 +5,10 @@ kit or a Bluetooth headset. The phone pairs with the PC as a **Hands-Free
 device (HFP)**, so you can make, answer and talk on phone calls with the PC's
 microphone and speakers (or headset).
 
+With the **COB Companion** Android app, COB also works over your **local
+Wi-Fi**, encrypted, for when the phone is out of Bluetooth range or the PC
+has no Bluetooth. See [Over Wi-Fi](#over-wi-fi).
+
 Works on **Linux (Fedora and others)** and **Windows 10/11**.
 
 ```
@@ -29,6 +33,8 @@ h
 - Phone status: network, signal, battery, operator
 - Starts the phone's voice assistant (Google Assistant / Siri)
 - Plays a ringtone on the PC when the phone doesn't send its own
+- Over Wi-Fi (Android): ring alerts, caller ID, answer, reject, hang up,
+  dial, battery and signal, all TLS-encrypted
 
 ## How it works
 
@@ -39,6 +45,8 @@ h
  SCO     ◄──── 8 kHz CVSD voice ─────────────► cob.audio  mic / speakers
                          ▲
               cob.backends: BlueZ (Linux) or Bumble (Windows)
+
+ COB Companion app ◄── TLS over Wi-Fi (JSON) ──► cob.wifi  call control & status
 ```
 
 - `cob/hfp.py`: the Hands-Free protocol. It sets up the Service Level
@@ -52,7 +60,10 @@ h
   a hands-free device or touch voice (SCO) links, so COB brings its own
   Bluetooth stack ([Bumble](https://github.com/google/bumble)) and drives a USB
   Bluetooth adapter directly.
-- `cob/cli.py`: the command line app.
+- `cob/wifi.py`: the encrypted Wi-Fi link to the Android companion app.
+- `cob/cli.py`: the command line app. It uses Bluetooth when it's connected
+  and falls back to Wi-Fi otherwise.
+- `android/`: the COB Companion app (Kotlin).
 
 ## Installation
 
@@ -161,15 +172,25 @@ move it back and forth.
 | `vr [on\|off]` | phone's voice assistant |
 | `calls` | list current calls |
 | `s` / `status` | phone and connection status |
-| `connect <address>` | connect to a paired phone |
+| `connect <address>` | connect to a paired phone over Bluetooth |
 | `at <command>` | send a raw AT command |
+| `pair` | show a QR code to pair the Android app (Wi-Fi) |
+| `devices` | list phones paired over Wi-Fi |
+| `unpair <name\|id>` | forget a phone paired over Wi-Fi |
 | `q` / `quit` | exit |
+
+Over Wi-Fi, COB can answer, reject, hang up, dial, redial and show status.
+The other commands need the Bluetooth connection.
 
 ### Options
 
 | Option | Meaning |
 |---|---|
-| `--backend bluez\|bumble` | Bluetooth stack (default: `bluez` on Linux, `bumble` on Windows) |
+| `--backend bluez\|bumble\|none` | Bluetooth stack (default: `bluez` on Linux, `bumble` on Windows; `none` for Wi-Fi only) |
+| `--wifi` | accept the COB Companion app over the local network |
+| `--wifi-port 7480` | Wi-Fi link port (TCP for the link, UDP for discovery) |
+| `--wifi-bind 0.0.0.0` | network address to listen on |
+| `--wifi-host ADDRESS` | address put in the pairing QR code, if COB guesses wrong |
 | `-d, --device ADDRESS` | phone to connect to |
 | `--adapter hci0` | BlueZ adapter to use |
 | `--transport SPEC` | Bumble HCI transport (default `usb:0+sco=0`: first USB dongle, SCO audio on) |
@@ -185,6 +206,59 @@ The Bumble backend also runs on Linux, which is useful with a dedicated
 dongle (`--backend bumble --transport usb:0+sco=0`; give your user access to
 the USB device, and keep BlueZ off that adapter).
 
+## Over Wi-Fi
+
+The **COB Companion** app for Android connects to COB over your local
+network. Use it when the phone is out of Bluetooth range (charging in another
+room) or the PC has no Bluetooth at all.
+
+**What works over Wi-Fi:** ring alerts and ringtone on the PC, caller ID,
+answer, reject, hang up, dial, redial, battery/signal/operator status.
+
+**Call audio needs Bluetooth.** Since Android 10, regular apps can't record
+call audio or feed a microphone into a call. Only system apps can. So when
+only Wi-Fi is connected, you answer from the PC and talk on the phone
+(speakerphone works well). When Bluetooth is connected too, COB uses it for
+both control and audio; Wi-Fi then just stands by. iPhones allow none of
+this, so the app is Android-only.
+
+### Setup
+
+1. **Install the app.** Build it from [`android/`](android/README.md) with
+   Android Studio, or download the `cob-companion-debug-apk` artifact from the
+   repository's *Actions → Android app* workflow. Then install the APK on the
+   phone.
+2. **Start COB with Wi-Fi on:**
+
+   ```bash
+   cob --wifi                  # Bluetooth and Wi-Fi
+   cob --wifi --backend none   # Wi-Fi only (no Bluetooth needed)
+   ```
+
+3. **Open the firewall** for port 7480 (TCP and UDP):
+   - Fedora: `sudo firewall-cmd --permanent --add-port=7480/tcp --add-port=7480/udp && sudo firewall-cmd --reload`
+   - Windows: when Windows asks, allow Python on **private** networks.
+4. **Pair:** type `pair` in COB. In the app, tap **Pair with PC (scan QR
+   code)** and scan the code. Grant the phone permissions the app asks for.
+   From then on the phone reconnects by itself, even after the PC's address
+   changes. Type `devices` to see paired phones, `unpair <name>` to remove one.
+
+### Security
+
+- The link is **TLS-encrypted** end to end. COB creates its own certificate
+  on first use, and the app accepts only that certificate: its SHA-256
+  fingerprint is in the QR code and pinned in the app. Someone else on the
+  Wi-Fi can't read the link or pretend to be your PC.
+- The QR code holds a **one-time pairing token** that expires after 10
+  minutes. Pairing trades it for a random per-phone secret. COB stores only a
+  hash of that secret, and the app keeps it in private storage that's
+  excluded from backups.
+- The certificate, key and paired phones live in `~/.config/cob/` (Linux) or
+  `%APPDATA%\COB\` (Windows). Delete `wifi-cert.pem` and `wifi-key.pem` to
+  make a new certificate; every phone then has to pair again.
+- Only use `--wifi` on networks you trust to be your own (home Wi-Fi). It
+  isn't meant to be exposed to the internet.
+
 ## Limitations
 
 - **Narrowband audio.** COB uses the CVSD codec (8 kHz, phone quality). The
@@ -195,7 +269,11 @@ the USB device, and keep BlueZ off that adapter).
   USB and laptop adapters do. If calls connect but stay silent, the adapter
   sends voice over a PCM bus instead and the Bumble backend with a USB dongle
   is the way out.
-- **Windows:** needs a dedicated USB dongle (see above).
+- **Windows:** needs a dedicated USB dongle for Bluetooth (see above). Wi-Fi
+  mode needs no dongle.
+- **Wi-Fi:** call control only, no audio (Android's rule); Android phones only.
+  Over Wi-Fi COB can't tell "dialing" from "talking", because Android doesn't
+  report it to apps.
 - One phone at a time.
 
 ## Troubleshooting
@@ -212,6 +290,12 @@ the USB device, and keep BlueZ off that adapter).
   still has the Windows driver. Redo the Zadig step.
 - **Choppy audio:** try `--audio-rate 16000`, or pick the devices explicitly
   with `--input-device` and `--output-device`.
+- **The app says "Looking for <PC>…"** (Wi-Fi): check that the phone and PC
+  are on the same network, COB runs with `--wifi`, and the firewall allows
+  port 7480. Some guest networks isolate devices from each other.
+- **Wrong address in the QR code:** start COB with `--wifi-host <PC's IP>`.
+- **The app stops overnight:** tap *Keep running in the background* in the
+  app and allow it, so battery saving doesn't cut the link.
 
 ## Development
 
@@ -221,8 +305,9 @@ pytest
 ```
 
 The tests run without Bluetooth hardware. A fake phone exercises the HFP
-protocol, and two virtual Bumble controllers run the Windows backend end to
-end.
+protocol, two virtual Bumble controllers run the Windows backend end to end,
+and a fake companion app exercises the encrypted Wi-Fi link. CI runs them on
+Linux and Windows and builds the Android app.
 
 ## License
 

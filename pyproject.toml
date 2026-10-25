@@ -5,13 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cob"
 dynamic = ["version"]
-description = "CallOverBluetooth: take your phone calls on your PC over Bluetooth Hands-Free (HFP)"
+description = "CallOverBluetooth: take your phone calls on your PC over Bluetooth Hands-Free (HFP) or Wi-Fi"
 readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.22",
     "sounddevice>=0.4.6",
+    "cryptography>=41",
+    "qrcode>=7.4",
     "dbus-fast>=2.0; sys_platform == 'linux'",
     "bumble>=0.0.200; sys_platform == 'win32'",
 ]

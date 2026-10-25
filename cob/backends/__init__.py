@@ -8,6 +8,7 @@ asyncio stream pair, and moves SCO audio packets through the app's
 * ``bluez``  - Linux (Fedora etc.) through the system BlueZ daemon.
 * ``bumble`` - Windows 10/11 (or Linux) through Google's Bumble stack,
   driving a USB Bluetooth dongle directly.
+* ``none``   - no Bluetooth; use only the Wi-Fi companion app.
 """
 
 from __future__ import annotations
@@ -76,11 +77,35 @@ class Backend(ABC):
         return type(self).__name__
 
 
+class NoBackend(Backend):
+    """Bluetooth turned off: only the Wi-Fi link to the companion app is used."""
+
+    def describe(self) -> str:
+        return "no Bluetooth"
+
+    async def start(self) -> None:
+        pass
+
+    async def stop(self) -> None:
+        pass
+
+    async def connect(self, address: str) -> None:
+        raise RuntimeError("Bluetooth is turned off (--backend none)")
+
+    async def open_audio(self, address: str) -> None:
+        raise RuntimeError("Bluetooth is turned off (--backend none)")
+
+    async def close_audio(self) -> None:
+        pass
+
+
 def default_backend() -> str:
     return "bluez" if sys.platform.startswith("linux") else "bumble"
 
 
 def create_backend(name: str, listener: BackendListener, features: HfFeature, args) -> Backend:
+    if name == "none":
+        return NoBackend(listener, features)
     if name == "bluez":
         from .bluez import BlueZBackend
 
